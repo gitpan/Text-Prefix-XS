@@ -3,7 +3,7 @@ use XSLoader;
 use strict;
 use warnings;
 
-our $VERSION = '0.01-TRIAL';
+our $VERSION = '0.02-TRIAL';
 
 XSLoader::load __PACKAGE__, $VERSION;
 use base qw(Exporter);
@@ -40,7 +40,7 @@ Text::Prefix::XS - Fast prefix searching
     
     my @needles = qw(AAA AB FOO FOO-BAR);
     
-    my $search = prefix_search_build( map uc($_), @needles );
+    my $search = prefix_search_create( map uc($_), @needles );
     
     my %seen_hash;
     
