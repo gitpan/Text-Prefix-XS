@@ -3,7 +3,7 @@ use XSLoader;
 use strict;
 use warnings;
 
-our $VERSION = '0.02-TRIAL';
+our $VERSION = '0.05';
 
 XSLoader::load __PACKAGE__, $VERSION;
 use base qw(Exporter);
@@ -98,18 +98,45 @@ this function; otherwise, the return value is C<undef>
 
 =head1 PERFORMANCE
 
-This module performs better than regex under any circumstance. In the future, a
-benchmark table will be posted - but on average, it's about 30-50% quicker than
-a regex.
+In most normal use cases, C<Text::Prefix::XS> will outperform any other module
+or search algorithm.
 
-This module would be even quicker if there were some way to implement this as an
-actual C<OP> rather than an C<xsub> call. But the performance is quite nice anyway
+Specifically, this module is intended for a pessimistic search mechanism,
+where most of the input is assumed not to match (which is usually the case anyway).
 
-=head1 SEE ALSO
+The ideal position of C<Text::Prefix::XS> would reside between raw but delimited
+user input, and more complex searching and processing algorithms. This module
+acts as a layer between those.
+
+In addition to a trie, this module also uses a very fast sparse array to check
+characters in the input against an index of known characters at the given
+position. This is much quicker than a hash lookup.
+
+See the C<trie.pl> script included with this distribution for detailed benchmark
+comparison methods
+
+Given a baseline of 1 CPU second - which is a non-capturing perl regex, the
+following numbers appear:
+
+    Pure-Perl based trie implementations:           1.75s
+    Perl Regex (Capturing):                         1.30s
+    RE2 Engine (Capturing):                         1.00s
+    Perl Regex (Non-Capturing)                      1.00s
+    Text::Match::FastAlternatives (Non-Capturing):  0.95
+    RE2 Engine (Non-Capturing)                      0.85
+    Text::Prefix::XS (implicit capturing)           0.60
+    
+I've mainly tested this on Debian's 5.10 - for newer perls, this module performs
+better, and for el5 5.8, The differences are a bit lower. TBC
+
+
+=head1 SEE ALSO 
 
 There are quite a few modules out there which aim for a Trie-like search, but
 they are all either not written in C, or would not be performant enough for this
 application.
+
+These two modules are implemented in pure perl, and are not part of the comparison.
 
 L<Text::Trie>
 
@@ -117,22 +144,25 @@ L<Regexp::Trie>
 
 L<Regexp::Optimizer>
 
-=head1 NOTES / TODO
+L<Text::Match::FastAlternatives>
 
-While my implementation is probably sloppy, the simplicity of the search itself
-makes it very quick and cruftless. When doing a prefix search on a large amount
-of text, but with a small number of prefixes, the reduction of overhead is the
-most important optimization for gaining performance.
+L<re::engine::RE2>
+
 
 =head1 CAVEATS
 
-Private perl data structures are allocated internally, therefore it wouldn't do
-good to use this module across threads. Also, memory leaks will ensue if you
-destroy the search object. But, search handles are expensive to create, and are
-assumed to be made for relatively static 'needles'.
+I have yet to figure out a way to test this properly with threads. Currently
+the trie data structure is stored as a private perl C<HV>, and I'm not sure
+what happens when it's cloned across threads.
 
-This is only because the developer is lazy and tired. Most of this should be
-fixed in a stable release
+This algorithm performs quite poorly when search prefixes are very similar.
+
+Search prefixes and search input is currently restricted to printable ASCII
+characters
+
+Search terms may not exceed 256 characters. You can increase this limit
+(at the cost of more memory) by changing the C<#define> of
+C<CHARTABLE_MAX> in the XS code and recompiling.
 
 =head1 AUTHOR AND COPYRIGHT
 
