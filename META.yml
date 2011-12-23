@@ -22,4 +22,4 @@ requires:
   Test::Deep: 0.108
   Test::More: 0
   XSLoader: 0
-version: 0.08
+version: 0.09

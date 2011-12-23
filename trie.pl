@@ -17,6 +17,7 @@ require 'txs_gendata.pm';
 GetOptions(
     'pp'            => \my $UsePP,
     'xs'            => \my $UseXS,
+    'xs_multi'      => \my $UseXS_multi,
     're'            => \my $UseRE,
     're2'           => \my $UseRE2,
     
@@ -137,7 +138,7 @@ sub search_TMFA {
 }
 
 sub search_XS {
-    my $xs_search = prefix_search_build(\@terms);
+    my $xs_search = prefix_search_create(@terms);
     foreach my $str (@strings) {
         if(my $result = prefix_search $xs_search, $str) {
             $matches++;
@@ -146,9 +147,20 @@ sub search_XS {
     return $matches;
 }
 
-if(!($UsePP||$UseXS||$UseRE||$UseRE2||$UseRE2_CAP||$UseRE_CAP)) {
+sub search_XS_multi {
+    my $xs_search = prefix_search_create(@terms);
+    my $match_hash = prefix_search_multi($xs_search, @strings);
+    while (my ($pfix,$mch) = each %$match_hash) {
+        $matches += scalar @$mch;
+    }
+    return $matches;
+}
+
+if(!($UsePP||$UseXS||$UseRE||$UseRE2
+     ||$UseRE2_CAP||$UseRE_CAP||$UseXS_multi)) {
     $UsePP = 1;
     $UseXS = 1;
+    $UseXS_multi = 1;
     $UseRE = 1;
     $UseRE2 = 1;
     $UseTMFA = 1;
@@ -175,8 +187,10 @@ my @fn_maps = (
      '[Y] perl-re', \&search_Perl_RE_cap],
     [$UseRE2_CAP && $can_have_re2,
      '[Y] RE2', sub { re2_test::search_RE2_CAP(\@terms, \@strings) }],
+    
     [$UseXS, "[Y] TXS",
-     \&search_XS]
+     \&search_XS],
+     [$UseXS_multi, '[Y] TXS-Multi', \&search_XS_multi]
 );
 
 printf("%-5s %-10s %3s\t%s\n",

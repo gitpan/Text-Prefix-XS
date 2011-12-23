@@ -408,6 +408,46 @@ SV* THX_prefix_search(pTHX_ SV* mysv, SV *input_sv)
 
 #define _print_optimized(v) printf("%s: %d\n", #v, (Optimized_ ## v))
 
+
+#define prefix_search_multi(mysv, input_strings) \
+	THX_prefix_search_multi(aTHX_ mysv, input_strings)
+SV* THX_prefix_search_multi(pTHX_ SV* mysv, AV *input_strings)
+{
+	int i = 0;
+	int max = av_len(input_strings);
+	HV *ret = newHV();
+	
+	SV **cur_sv;
+	AV *tmpav = NULL;
+	SV *prefix = NULL;
+	HE *prefix_ret_ent = NULL;
+	
+	for(i = 0; i <= max; i++) {
+		cur_sv = av_fetch(input_strings, i, 0);
+		
+		if(!cur_sv || (!SvPV_nolen(*cur_sv)) ) {
+			/*Non existent or not a string. We don't care about SvPV since it's
+			gonna get converted anyway*/
+			continue;
+		}
+		
+		prefix = prefix_search(mysv, *cur_sv);
+		if(prefix == &PL_sv_undef) {
+			continue;
+		}
+				
+		prefix_ret_ent = hv_fetch_ent(ret, prefix, 0, 0);
+		if(!prefix_ret_ent) {
+			prefix_ret_ent = hv_store_ent(
+						ret, prefix, newRV_noinc((SV*)newAV()), 0);
+		}
+		
+		tmpav = SvRV(HeVAL(prefix_ret_ent));
+		av_store(tmpav, av_len(tmpav)+1, newSVsv(*cur_sv));
+	}
+	return newRV_noinc((SV*)ret);
+}
+
 void print_optimized(char* foo)
 {
     _print_optimized(2);
@@ -471,6 +511,14 @@ prefix_search (mysv, input)
 	SV *	mysv
 	SV *	input
 	PROTOTYPE: $$
+
+
+
+SV *
+prefix_search_multi (mysv, input_strings)
+	SV *	mysv
+	AV *	input_strings
+	PROTOTYPE: $\@
 
 void
 print_optimized (foo)

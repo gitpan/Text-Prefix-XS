@@ -3,14 +3,15 @@ use XSLoader;
 use strict;
 use warnings;
 
-our $VERSION = '0.08';
+our $VERSION = '0.09';
 
 XSLoader::load __PACKAGE__, $VERSION;
 use base qw(Exporter);
 our @EXPORT = qw(
     prefix_search_build
     prefix_search_create
-    prefix_search);
+    prefix_search
+    prefix_search_multi);
 1;
 
 sub prefix_search_create(@)
@@ -38,9 +39,9 @@ Text::Prefix::XS - Fast prefix searching
         AB-hi!
     );
     
-    my @needles = qw(AAA AB FOO FOO-BAR);
+    my @prefixes = qw(AAA AB FOO FOO-BAR);
     
-    my $search = prefix_search_create( map uc($_), @needles );
+    my $search = prefix_search_create( map uc($_), @prefixes );
     
     my %seen_hash;
     
@@ -53,7 +54,7 @@ Text::Prefix::XS - Fast prefix searching
     $seen_hash{'FOO'} == 1;
     
     #Compare to:
-    my $re = join('|', map quotemeta $_, @needles);
+    my $re = join('|', map quotemeta $_, @prefixes);
     $re = qr/^($re)/;
     
     foreach my $haystack (@haystacks) {
@@ -92,9 +93,28 @@ It will then construct a search trie using a variety of caching and lookup layer
 
 =head2 prefix_search($thingy, $haystack)
 
-Will check C<$haystack> for any of the prefixes in C<@needles> passed to
+Will check C<$haystack> for any of the prefixes in C<@prefixes> passed to
 L</prefix_search_create>. If C<$haystack> has a prefix, it will be returned by
 this function; otherwise, the return value is C<undef>
+
+=head2 prefix_search_multi($thingy, @haystacks)
+
+B<EXTREMELY FAST!!!>
+
+Will check each item in C<@haystacks> for any of the C<@prefixes> passed to
+L</prefix_search_create>. The return value is a hash reference. Its keys are matched
+prefix strings, and its values are array references containing items from C<@haystacks>
+which matched.
+
+This function is extremely fast. It's four times quicker than the normal
+L</prefix_search> function (which is itself about twice as fast as any other
+method).
+
+However, it will not gain a lot of performance benefit with optimistic searching
+(meaning that a match has a good chance of being found), and will just consume
+more memory (since it needs to store the results in a hash).
+
+
 
 =head1 PERFORMANCE
 
