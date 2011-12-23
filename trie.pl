@@ -1,7 +1,6 @@
 #!/usr/bin/perl
 use strict;
 use warnings;
-use Digest::SHA1 qw(sha1_hex);
 use Data::Dumper;
 use Time::HiRes qw(time);
 use blib;
@@ -9,90 +8,67 @@ use Text::Prefix::XS;
 use Log::Fu;
 use Getopt::Long;
 use Text::Match::FastAlternatives;
-use List::MoreUtils qw(uniq);
-use MIME::Base64;
+use Dir::Self;
+use lib __DIR__ . '/t';
+use Benchmark qw(:all);
+
+require 'txs_gendata.pm';
 
 GetOptions(
-    'pp' => \my $UsePP,
-    'xs' => \my $UseXS,
-    're' => \my $UseRE,
-    're2' => \my $UseRE2,
-    'tmfa' => \my $UseTMFA,
-    'cached' => \my $UseCached,
-    'cycles=i' => \my $Cycles,
-    'count=i' => \my $StringCount,
+    'pp'            => \my $UsePP,
+    'xs'            => \my $UseXS,
+    're'            => \my $UseRE,
+    're2'           => \my $UseRE2,
+    
+    're2_cap'       => \my $UseRE2_CAP,
+    're_cap'        => \my $UseRE_CAP,
+    
+    'tmfa'          => \my $UseTMFA,
+    'cached'        => \my $UseCached,
+    'cycles=i'      => \my $Cycles,
+    'count=i'       => \my $StringCount,
+    'min=i'         => \my $TermMin,
+    'max=i'         => \my $TermMax,
+    'terms=i'       => \my $TermCount,
+    'bench'         => \my $DoBench
 );
 
 $Cycles ||= 0;
 $StringCount ||= 2_000_000;
 
-if(!($UsePP||$UseXS||$UseRE||$UseRE2)) {
-    $UsePP = 1;
-    $UseXS = 1;
-    $UseRE = 1;
-    $UseRE2 = 1;
-    $UseTMFA = 1;
-}
-
-my %index;
-my %fullmatch;
 my $matches = 0;
-my $match_first_pass = 0;
-my $not_filtered = 0;
 
-sub reset_counters {
-    $matches = 0;
-    $match_first_pass = 0;
-    $not_filtered = 0;
-}
+txs_gendata::GenData( {
+        StringCount => $StringCount,
+        TermCount => $TermCount ||= 20,
+        MinLength => $TermMin ||= 5,
+        MaxLength => $TermMax ||= 20
+    },
+    \my @terms,
+    \my @strings);
 
-sub print_counters {
-    printf("Got %d matches\n", $matches);
-    printf("Got %d matches on first pass\n",
-        $match_first_pass);
-    printf("Got %d non-filtered\n", $not_filtered);
-}
+printf("Generated INPUT=%d TERMS=%d TERM_MIN=%d TERM_MAX=%d\n",
+       $StringCount, scalar @terms, $TermMin, $TermMax);
 
-#Build string list, so that we can accurately benchark the searching
 
-my $STRING_COUNT = $StringCount;
-my $TERM_COUNT = 20;
-my $PREFIX_MIN = 5;
-my $PREFIX_MAX = 20;
-
-my @strings = map substr(encode_base64(sha1_hex($_)),0, $PREFIX_MAX+1), (0..$STRING_COUNT);
-
-my @terms;
-while(@terms < $TERM_COUNT) {
-    my $str = $strings[int(rand($STRING_COUNT))];
-    my $prefix = substr($str, 0, 
-        int(rand($PREFIX_MAX - $PREFIX_MIN)) + $PREFIX_MIN);
-    push @terms, $prefix;
-}
-
-@terms = uniq(@terms);
-
-#Build index;
-my $MIN_INDEX = 100;
-foreach my $term (@terms) {
-    if(length($term) < $MIN_INDEX) {
-        $MIN_INDEX = length($term);
+sub search_PP {
+    my $match_first_pass = 0;
+    my $not_filtered = 0;
+    my %index;
+    my %fullmatch;
+    my $MIN_INDEX = 100;
+    foreach my $term (@terms) {
+        if(length($term) < $MIN_INDEX) {
+            $MIN_INDEX = length($term);
+        }
+        my @chars = split(//, $term);
+        while(@chars) {
+            $index{join("", @chars)} = 1;
+            pop @chars;
+        }
+        $fullmatch{$term} = 1;
     }
-
-    my @chars = split(//, $term);
-    while(@chars) {
-        $index{join("", @chars)} = 1;
-        pop @chars;
-    }
-    $fullmatch{$term} = 1;
-
-}
-@terms = sort { length $b <=> length $a || $a cmp $b } @terms;
-
-my $begin_time = time();
-my $duration;
-print "Beginning search\n";
-if($UsePP) {
+    
     CHECK_TERM:
     foreach my $str (@strings) {
         my $j = 1;
@@ -111,92 +87,112 @@ if($UsePP) {
             }
         }
     };
-
-    my $now = time();
-    $duration = $now-$begin_time;
-    printf("my Trie: Duration: %0.2f\n", $duration);
-    print_counters();
+    return $matches;
 }
 
 #Try large regex version..
-reset_counters();
-my $BIG_RE;
-
-sub gen_big_re { 
-    $BIG_RE = join '|',  map quotemeta, @terms;
-    $BIG_RE = qr/^($BIG_RE)/;
+sub gen_big_re {
+    my ($is_cap,$is_re2) = @_;
+    
+    my $ret;
+    $ret = join '|',  map quotemeta $_, @terms;
+    if($is_cap) {
+        $ret = qr/^($ret)/;
+    } else {
+        $ret = qr/^(?:$ret)/;
+    }
 }
 
-sub gen_big_re2 {
-    use re::engine::RE2;
-    $BIG_RE = join '|',  map quotemeta, @terms;
-    $BIG_RE = qr/^(?:$BIG_RE)/;
-    die "Not an RE2 object" unless $BIG_RE->isa('re::engine::RE2');
-}
-
-log_infof("Have %d terms", scalar @terms);
-
-if($UseRE) {
-    gen_big_re();
-    $begin_time = time();
+sub search_Perl_RE {
+    
+    my $re = gen_big_re();
     foreach my $str (@strings) {
-        if($str =~ $BIG_RE) {
-            #my ($match) = ($str =~ $BIG_RE);
+        if($str =~ $re) {
             $matches++;
         }
     }
-    $duration = time() - $begin_time;
-    printf("BIG RE: Duration: %0.2f\n", $duration);
-    print_counters();
+    return $matches;
 }
 
-reset_counters();
-
-if($UseRE2) {
-    use re::engine::RE2 -strict => 1;
-    gen_big_re2();
-    $begin_time = time();
+sub search_Perl_RE_cap {
+    my $re = gen_big_re(1, 0);
     foreach my $str (@strings) {
-        if($str =~ $BIG_RE) {
-            #my ($match) = ($str =~ $BIG_RE);
+        my ($match) = ( $str =~ $re );
+        if($match) {
             $matches++;
         }
     }
-    $duration = time() - $begin_time;
-    printf("BIG RE (RE2): Duration: %0.2f\n", $duration);
-    print_counters();
+    return $matches;
 }
 
-reset_counters();
 
-
-if($UseTMFA) {
+sub search_TMFA {
     my $tmfa = Text::Match::FastAlternatives->new(@terms);
-    $begin_time = time();
     foreach my $str (@strings) {
         if($tmfa->match_at($str, 0)) {
             $matches++;
         }
     }
-    $duration = time() - $begin_time;
-    printf("TMFA: Duration: %0.2f\n", $duration);
-    print_counters();
+    return $matches;
 }
 
-reset_counters();
-if($UseXS) {
+sub search_XS {
     my $xs_search = prefix_search_build(\@terms);
-    foreach (0..$Cycles) {
-        $begin_time = time();
-        foreach my $str (@strings) {
-            if(my $result = prefix_search $xs_search, $str) {
-                $matches++;
-            }
+    foreach my $str (@strings) {
+        if(my $result = prefix_search $xs_search, $str) {
+            $matches++;
         }
-        $duration = time() - $begin_time;
-        printf("C Implementation: %0.2f\n", $duration);
-        print_counters();
-        Text::Prefix::XS::print_optimized("");
     }
+    return $matches;
 }
+
+if(!($UsePP||$UseXS||$UseRE||$UseRE2||$UseRE2_CAP||$UseRE_CAP)) {
+    $UsePP = 1;
+    $UseXS = 1;
+    $UseRE = 1;
+    $UseRE2 = 1;
+    $UseTMFA = 1;
+    $UseRE2_CAP = 1;
+    $UseRE_CAP = 1;
+}
+
+my $can_have_re2;
+eval {
+    require 're2_test.pm';
+    $can_have_re2 = 1;
+};
+
+my @fn_maps = (
+    [$UsePP,
+     "[Y] Perl-Trie", \&search_PP],
+    [$UseTMFA,
+     "[N] TMFA", \&search_TMFA],
+    [$UseRE,
+     "[N] perl-re", \&search_Perl_RE],
+    [$UseRE2 && $can_have_re2,
+     "[N] RE2", sub { re2_test::search_RE2(\@terms, \@strings) }],
+    [$UseRE_CAP,
+     '[Y] perl-re', \&search_Perl_RE_cap],
+    [$UseRE2_CAP && $can_have_re2,
+     '[Y] RE2', sub { re2_test::search_RE2_CAP(\@terms, \@strings) }],
+    [$UseXS, "[Y] TXS",
+     \&search_XS]
+);
+
+printf("%-5s %-10s %3s\t%s\n",
+       'CAP', 'NAME', 'DUR', 'MATCH');
+foreach (@fn_maps) {
+    my ($enabled,$title,$fn) = @$_;
+    if(!$enabled) {
+        log_warnf("Skipping %s", $title);
+        next;
+    }
+    $matches = 0;
+    my $begin_time = time();
+    my $matches = $fn->();
+    my $duration = time() - $begin_time;
+    printf("%-15s\t%0.2fs\tM=%d\n",
+              $title, $duration, $matches);
+}
+
 1;

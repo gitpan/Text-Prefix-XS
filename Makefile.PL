@@ -17,7 +17,7 @@ WriteMakefile(
         'XSLoader'  => 0,
         'Test::Deep'=> 0.108,
     },
-    LIBS                => ['-lprofiler'],
+    #LIBS                => ['-lprofiler'],
     OPTIMIZE            => '-O3 -ggdb3',
     dist                => { COMPRESS => 'gzip -9f', SUFFIX => 'gz', },
     clean               => { FILES => 'Text-Prefix-XS-*' },
