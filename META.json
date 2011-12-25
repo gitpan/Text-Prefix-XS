@@ -34,11 +34,10 @@
          "requires" : {
             "Digest::SHA1" : "1",
             "Test::Deep" : "0.108",
-            "Test::More" : 0,
-            "XSLoader" : 0
+            "Test::More" : 0
          }
       }
    },
    "release_status" : "stable",
-   "version" : "0.09"
+   "version" : "0.10"
 }
