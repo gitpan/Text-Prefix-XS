@@ -21,4 +21,4 @@ requires:
   Digest::SHA1: 1
   Test::Deep: 0.108
   Test::More: 0
-version: 0.11
+version: 0.15
